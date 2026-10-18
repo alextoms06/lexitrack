@@ -1,10 +1,23 @@
 import { STORAGE_KEY } from "./wordStore.js";
+import { mergeExtensionBackup } from "./backupStorage.js";
+import { MAX_BACKUP_BYTES, mergeVocabularyBackup, parseVocabularyBackup, serializeVocabularyBackup } from "../src/lib/backup.js";
 
 const wordList = document.querySelector("#word-list");
 const wordSearch = document.querySelector("#word-search");
 const status = document.querySelector("#status");
 const wordCount = document.querySelector("#word-count");
+const backupFile = document.querySelector("#backup-file");
+const restoreDialog = document.querySelector("#restore-preview");
+const exportBackupButton = document.querySelector("#export-backup");
+const restoreBackupButton = document.querySelector("#restore-backup");
+const confirmRestoreButton = document.querySelector("#confirm-restore");
 let words = [];
+let pendingBackup = null;
+
+function setStatus(message, isError = false) {
+  status.textContent = message;
+  status.classList.toggle("is-error", isError);
+}
 
 function escapeHTML(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
@@ -26,7 +39,7 @@ function renderWords() {
   );
 
   wordCount.textContent = `${words.length} ${words.length === 1 ? "word" : "words"}`;
-  status.textContent = words.length ? "" : "Words you save from Google appear here.";
+  setStatus(words.length ? "" : "Words you save from Google appear here.");
 
   if (!filteredWords.length) {
     wordList.innerHTML = `<p class="empty-state">${words.length ? "No matching words." : "Search a word's meaning on Google to start your list."}</p>`;
@@ -47,13 +60,13 @@ function renderWords() {
 }
 
 async function loadWords() {
-  status.textContent = "Loading your vocabulary…";
+  setStatus("Loading your vocabulary…");
   try {
     const result = await chrome.storage.local.get(STORAGE_KEY);
     words = Array.isArray(result[STORAGE_KEY]) ? result[STORAGE_KEY] : [];
     renderWords();
   } catch {
-    status.textContent = "Could not load saved words. Check the extension's storage permission.";
+    setStatus("Could not load saved words. Check the extension's storage permission.", true);
     wordList.innerHTML = "";
   }
 }
@@ -70,6 +83,75 @@ wordList.addEventListener("click", async (event) => {
   } catch {
     status.textContent = "Could not delete that word. Please try again.";
     button.disabled = false;
+  }
+});
+
+exportBackupButton.addEventListener("click", () => {
+  try {
+    const date = new Date().toISOString().slice(0, 10);
+    const contents = serializeVocabularyBackup(words);
+    const url = URL.createObjectURL(new Blob([contents], { type: "application/json" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `lexitrack-backup-${date}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setStatus(`Exported local backup with ${words.length} ${words.length === 1 ? "word" : "words"}.`);
+  } catch {
+    setStatus("Could not export your backup. Please try again.", true);
+  }
+});
+
+restoreBackupButton.addEventListener("click", () => backupFile.click());
+backupFile.addEventListener("change", async () => {
+  const file = backupFile.files?.[0];
+  backupFile.value = "";
+  if (!file) return;
+
+  restoreBackupButton.disabled = true;
+  setStatus("Validating backup locally…");
+  try {
+    if (file.size > MAX_BACKUP_BYTES) {
+      throw new Error(`Backup exceeds the ${Math.floor(MAX_BACKUP_BYTES / (1024 * 1024))} MB size limit.`);
+    }
+    const parsed = parseVocabularyBackup(await file.text());
+    const preview = mergeVocabularyBackup(words, parsed.words, parsed.skipped);
+    pendingBackup = { words: parsed.words, skipped: parsed.skipped };
+    document.querySelector("#restore-file-name").textContent = file.name;
+    document.querySelector("#restore-import-count").textContent = String(preview.imported);
+    document.querySelector("#restore-duplicate-count").textContent = String(preview.duplicates);
+    document.querySelector("#restore-skipped-count").textContent = String(preview.skipped);
+    confirmRestoreButton.textContent = `Merge ${preview.imported} ${preview.imported === 1 ? "word" : "words"}`;
+    restoreDialog.showModal();
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "Could not read this backup.", true);
+  } finally {
+    restoreBackupButton.disabled = false;
+  }
+});
+
+document.querySelector("#cancel-restore").addEventListener("click", () => {
+  pendingBackup = null;
+  restoreDialog.close();
+});
+
+confirmRestoreButton.addEventListener("click", async () => {
+  if (!pendingBackup) return;
+  confirmRestoreButton.disabled = true;
+  const previousLabel = confirmRestoreButton.textContent;
+  confirmRestoreButton.textContent = "Merging…";
+  try {
+    const result = await mergeExtensionBackup(pendingBackup.words, pendingBackup.skipped);
+    words = result.words;
+    renderWords();
+    setStatus(`Imported ${result.imported}; skipped ${result.skipped}; duplicates ${result.duplicates}.`);
+    pendingBackup = null;
+    restoreDialog.close();
+  } catch {
+    setStatus("Could not save the restored vocabulary. Existing entries were not replaced.", true);
+  } finally {
+    confirmRestoreButton.disabled = false;
+    confirmRestoreButton.textContent = previousLabel;
   }
 });
 

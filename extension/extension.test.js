@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createQueryClassifier } from "../src/meaningModule.js";
 import { addVocabularyEntry } from "./wordStore.js";
+import { mergeExtensionBackup, readExtensionWords } from "./backupStorage.js";
 
 describe("extension vocabulary storage", () => {
   it("deduplicates words regardless of case and whitespace", () => {
@@ -55,5 +56,21 @@ describe("extension vocabulary storage", () => {
 
     const lowSimilarity = await classify("unrelated");
     expect(lowSimilarity.isMeaningQuery).toBe(false);
+  });
+
+  it("merges extension backups through chrome.storage.local without replacing existing data", async () => {
+    let stored = [{ id: "old", word: "Ephemeral", definition: "Keep me" }];
+    const storage = {
+      get: async () => ({ "lexitrack.extension.words.v1": stored }),
+      set: async (value) => { stored = value["lexitrack.extension.words.v1"]; }
+    };
+    const result = await mergeExtensionBackup([
+      { word: "ephemeral", definition: "Replace me" },
+      { word: "serendipity", query: "serendipity meaning", definition: "A fortunate discovery" }
+    ], 1, storage);
+
+    expect(result).toMatchObject({ imported: 1, skipped: 1, duplicates: 1 });
+    expect(await readExtensionWords(storage)).toHaveLength(2);
+    expect(stored[1]).toMatchObject({ id: "old", word: "Ephemeral", definition: "Keep me" });
   });
 });

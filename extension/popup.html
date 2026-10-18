@@ -11,14 +11,26 @@
         <div class="brand"><span class="brand-mark">L</span><span>LexiTrack</span></div>
         <span class="word-count" id="word-count">0 words</span>
       </header>
+      <div class="backup-actions">
+        <button id="export-backup" type="button" class="backup-button">Export backup</button>
+        <button id="restore-backup" type="button" class="backup-button">Restore backup</button>
+        <input id="backup-file" type="file" accept=".json,application/json" hidden />
+      </div>
       <label class="search-box" for="word-search">
         <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m16 16 4 4"></path></svg>
         <input id="word-search" type="search" placeholder="Search your words" autocomplete="off" />
       </label>
       <p class="status" id="status" role="status">Loading your vocabulary…</p>
       <section class="word-list" id="word-list" aria-live="polite"></section>
-      <footer class="popup-footer">Saved only in this browser profile</footer>
+      <footer class="popup-footer">Stored locally in this browser. Clearing extension data may erase words; export backups regularly.</footer>
     </main>
+    <dialog id="restore-preview" class="restore-dialog" aria-labelledby="restore-title">
+      <h2 id="restore-title">Restore vocabulary</h2>
+      <p id="restore-file-name"></p>
+      <dl><div><dt>Will import</dt><dd id="restore-import-count">0</dd></div><div><dt>Duplicates</dt><dd id="restore-duplicate-count">0</dd></div><div><dt>Skipped invalid</dt><dd id="restore-skipped-count">0</dd></div></dl>
+      <p>Existing entries will remain unchanged.</p>
+      <div class="restore-actions"><button id="cancel-restore" type="button" class="backup-button">Cancel</button><button id="confirm-restore" type="button" class="backup-button is-primary">Merge backup</button></div>
+    </dialog>
     <script type="module" src="./popup.js"></script>
   </body>
 </html>

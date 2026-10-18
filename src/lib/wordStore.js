@@ -23,21 +23,43 @@ export function createWord(input) {
   }
 }
 
+export function upsertWord(words, input, editingWord = null) {
+  const word = String(input.word || '').trim()
+  const isEditing = Boolean(editingWord?.id)
+  const duplicate = words.find((entry) =>
+    entry.id !== editingWord?.id && entry.word.toLocaleLowerCase() === word.toLocaleLowerCase()
+  )
+  if (duplicate) return { error: `“${duplicate.word}” is already in your library.` }
+
+  const saved = isEditing
+    ? { ...editingWord, ...input, word, category: input.category || 'general' }
+    : createWord({ ...input, word })
+  const nextWords = isEditing
+    ? words.map((entry) => entry.id === editingWord.id ? saved : entry)
+    : [saved, ...words]
+
+  return { words: nextWords, saved, isEditing }
+}
+
 export function normalizeWord(input) {
   if (!input || typeof input !== 'object') return null
 
   const word = String(input.word || '').trim()
-  const definition = String(input.definition || '').trim()
-  if (!word || !definition) return null
+  if (!word) return null
 
   return {
     id: String(input.id || crypto.randomUUID()),
     word,
     partOfSpeech: String(input.partOfSpeech || input.part_of_speech || '').trim(),
     category: String(input.category || 'general').trim().toLowerCase(),
-    definition,
+    categories: Array.isArray(input.categories)
+      ? input.categories.filter((category) => typeof category === 'string').map((category) => category.trim()).filter(Boolean)
+      : undefined,
+    definition: String(input.definition || '').trim(),
     example: String(input.example || input.exampleSentence || '').trim(),
     note: String(input.note || '').trim(),
+    query: String(input.query || '').trim(),
+    source: String(input.source || '').trim(),
     liked: parseFlag(input.liked),
     dateAdded: input.dateAdded || input.date_added || new Date().toISOString(),
     mastered: parseFlag(input.mastered),

@@ -6,8 +6,9 @@ import {
   Sparkles, Trash2, Upload, Volume2, X
 } from "lucide-react";
 import ModelTest from "./ModelTest.jsx";
-import { createWord, normalizeWord, readWordsResult, saveWords } from "./lib/wordStore.js";
+import { normalizeWord, readWordsResult, saveWords, upsertWord } from "./lib/wordStore.js";
 import { downloadFile, fromCSV, toCSV } from "./lib/csv.js";
+import { MAX_BACKUP_BYTES, mergeVocabularyBackup, parseVocabularyBackup, serializeVocabularyBackup } from "./lib/backup.js";
 import "./vocabulary.css";
 
 const CATEGORY_META = {
@@ -43,6 +44,10 @@ function App() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(initial.words[0]?.id || null);
   const [editingWord, setEditingWord] = useState(null);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restorePreview, setRestorePreview] = useState(null);
+  const [restoreError, setRestoreError] = useState("");
+  const [isReadingImport, setIsReadingImport] = useState(false);
   const [toast, setToast] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [reviewIndex, setReviewIndex] = useState(0);
@@ -111,19 +116,16 @@ function App() {
   }
 
   function saveEntry(fields) {
-    const normalized = fields.word.trim();
-    const duplicate = words.find((word) => word.id !== editingWord?.id && word.word.toLocaleLowerCase() === normalized.toLocaleLowerCase());
-    if (duplicate) return { error: `“${duplicate.word}” is already in your library.` };
-    const saved = editingWord
-      ? { ...editingWord, ...fields, word: normalized, category: fields.category || "general" }
-      : createWord({ ...fields, word: normalized });
-    const nextWords = editingWord
-      ? words.map((word) => word.id === editingWord.id ? saved : word)
-      : [saved, ...words];
-    if (!commit(nextWords, editingWord ? "Word updated" : "Word added to your library")) {
+    const result = upsertWord(words, fields, editingWord);
+    if (result.error) return result;
+    if (!commit(result.words, result.isEditing ? "Word updated" : "Word added to your library")) {
       return { error: "Could not save to this browser. Please try again." };
     }
-    setSelectedId(saved.id);
+    setSelectedId(result.saved.id);
+    setFilter("all");
+    setQuery("");
+    setView("library");
+    setMobileNavOpen(false);
     setEditingWord(null);
     return { success: true };
   }
@@ -164,36 +166,73 @@ function App() {
   }, [view, revealed, activeCard, words]);
 
   async function importFile(event) {
-    const file = event.target.files?.[0];
+    const input = event.currentTarget;
+    const file = input.files?.[0];
     if (!file) return;
+    setIsReadingImport(true);
+    setRestoreError("");
+    setRestorePreview(null);
     try {
-      const text = await file.text();
-      const source = file.name.toLowerCase().endsWith(".csv")
-        ? fromCSV(text)
-        : (() => { const parsed = JSON.parse(text); return Array.isArray(parsed) ? parsed : parsed.words; })();
-      if (!Array.isArray(source)) throw new Error("Choose a JSON array, an object with a words array, or a CSV file.");
-      const known = new Set(words.map((word) => word.word.trim().toLocaleLowerCase()));
-      const additions = [];
-      for (const rawWord of source) {
-        const word = normalizeWord(rawWord);
-        const key = word?.word.trim().toLocaleLowerCase();
-        if (!word || known.has(key)) continue;
-        known.add(key);
-        additions.push({ ...word, category: CATEGORY_KEYS.includes(word.category) ? word.category : "general" });
+      if (file.size > MAX_BACKUP_BYTES) {
+        throw new Error(`This file exceeds the ${Math.floor(MAX_BACKUP_BYTES / (1024 * 1024))} MB import limit.`);
       }
-      if (!additions.length) { notify("No new valid words found in that file"); return; }
-      if (commit([...additions, ...words], `Imported ${additions.length} ${additions.length === 1 ? "word" : "words"}`)) setSelectedId(additions[0].id);
+      const text = await file.text();
+      let incomingWords;
+      let skipped = 0;
+      if (file.name.toLowerCase().endsWith(".csv")) {
+        incomingWords = [];
+        for (const row of fromCSV(text)) {
+          const normalized = normalizeWord(row);
+          if (normalized) incomingWords.push(normalized);
+          else skipped += 1;
+        }
+      } else {
+        const backup = parseVocabularyBackup(text);
+        incomingWords = backup.words;
+        skipped = backup.skipped;
+      }
+
+      const preview = mergeVocabularyBackup(words, incomingWords, skipped);
+      setRestorePreview({
+        fileName: file.name,
+        incomingWords,
+        skipped: preview.skipped,
+        duplicates: preview.duplicates,
+        imported: preview.imported
+      });
     } catch (error) {
-      setStorageError(error instanceof Error ? error.message : "Could not import that file.");
+      setRestoreError(error instanceof Error ? error.message : "Could not read this backup.");
     } finally {
-      event.target.value = "";
+      setIsReadingImport(false);
+      input.value = "";
     }
+  }
+
+  function confirmRestore() {
+    if (!restorePreview) return;
+    const latest = readWordsResult();
+    if (latest.error) {
+      setStorageError(latest.error);
+      setRestoreError("Could not safely merge this backup because local vocabulary could not be read.");
+      return;
+    }
+    const merged = mergeVocabularyBackup(latest.words, restorePreview.incomingWords, restorePreview.skipped);
+    if (merged.imported && !commit(merged.words)) return;
+    if (!merged.imported) setWords(latest.words);
+    if (merged.additions[0]) setSelectedId(merged.additions[0].id);
+    notify(`Imported ${merged.imported}; skipped ${merged.skipped}; duplicates ${merged.duplicates}`);
+    setRestoreOpen(false);
+    setRestorePreview(null);
+    setRestoreError("");
   }
 
   function exportFile(format) {
     try {
       if (format === "csv") downloadFile("lexitrack-words.csv", toCSV(words), "text/csv;charset=utf-8");
-      else downloadFile("lexitrack-words.json", JSON.stringify(words, null, 2), "application/json");
+      else {
+        const date = new Date().toISOString().slice(0, 10);
+        downloadFile(`lexitrack-backup-${date}.json`, serializeVocabularyBackup(words), "application/json");
+      }
       notify(`Exported ${words.length} ${words.length === 1 ? "word" : "words"}`);
     } catch {
       setStorageError("Could not export your vocabulary. Please try again.");
@@ -203,6 +242,12 @@ function App() {
   function clearLibrary() {
     if (!words.length || !window.confirm("Delete every saved word from this browser? This cannot be undone.")) return;
     if (commit([], "Your local library was cleared")) { setSelectedId(null); setFilter("all"); }
+  }
+
+  function openRestore() {
+    setRestorePreview(null);
+    setRestoreError("");
+    setRestoreOpen(true);
   }
 
   return <div className="lexi-app">
@@ -234,11 +279,11 @@ function App() {
       {view === "model" ? <div className="model-lab-view"><ModelTest embedded /></div>
         : view === "review" ? <ReviewView word={activeCard} index={reviewIndex} count={reviewDeck.length} revealed={revealed} onReveal={() => setRevealed((value) => !value)} onRate={rateCard} onBack={() => navigate("home")} />
           : view === "stats" ? <StatsView words={words} masteredCount={masteredCount} categories={categories} />
-            : view === "settings" ? <SettingsView onImport={() => importRef.current?.click()} onExport={exportFile} onClear={clearLibrary} wordCount={words.length} storageError={storageError} />
+            : view === "settings" ? <SettingsView onImport={openRestore} onExport={exportFile} onClear={clearLibrary} wordCount={words.length} storageError={storageError} />
               : <>
                 <div className="page-heading-row"><div><p className="page-eyebrow">{view === "home" ? greeting() : "YOUR WORD JOURNAL"}</p><h1>{view === "home" ? <>Build a brighter you,<br /><em>one word at a time.</em></> : "Your vocabulary"}<span className="title-period">.</span></h1></div><button className="primary-action" type="button" onClick={() => setEditingWord({})}><Plus size={17} /> Add a word</button></div>
                 {view === "home" && <HomeOverview words={sortedWords} selectedWord={selectedWord} onSelect={setSelectedId} onAdd={() => setEditingWord({})} onLike={toggleLiked} onReview={() => navigate("review")} />}
-                <section className="library-section" aria-labelledby="library-heading"><div className="library-heading-row"><div><p className="page-eyebrow">THE COLLECTION</p><h2 id="library-heading">{view === "home" ? "Your vocabulary" : "Your library"}<span>{filteredWords.length} {filteredWords.length === 1 ? "word" : "words"}</span></h2></div><div className="library-actions"><button className="subtle-action" type="button" onClick={() => importRef.current?.click()}><Upload size={14} /> Import</button><ExportMenu onExport={exportFile} /></div></div>
+                <section className="library-section" aria-labelledby="library-heading"><div className="library-heading-row"><div><p className="page-eyebrow">THE COLLECTION</p><h2 id="library-heading">{view === "home" ? "Your vocabulary" : "Your library"}<span>{filteredWords.length} {filteredWords.length === 1 ? "word" : "words"}</span></h2></div><div className="library-actions"><button className="subtle-action" type="button" onClick={openRestore}><Upload size={14} /> Import backup</button><button className="subtle-action" type="button" onClick={() => exportFile("json")}><Download size={14} /> Export backup</button><ExportMenu onExport={exportFile} /></div></div>
                   <div className="library-toolbar"><div className="filter-tabs" role="group" aria-label="Filter vocabulary by category">{[{ key: "all", label: "All" }, { key: "liked", label: "Liked" }, ...categories].map((item) => <button key={item.key} type="button" className={filter === item.key ? "selected" : ""} aria-pressed={filter === item.key} onClick={() => setFilter(item.key)}>{item.label}<i>{item.key === "all" ? words.length : item.key === "liked" ? likedCount : item.count}</i></button>)}</div><label className="list-sort-label"><CalendarDays size={13} /><span className="visually-hidden">Sort words</span><select aria-label="Sort words" value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}><option value="newest">Date added</option><option value="oldest">Oldest first</option><option value="alphabetical">A to Z</option></select></label></div>
                   {filteredWords.length ? <div className="word-list" role="list">{filteredWords.map((word, index) => <WordRow key={word.id} word={word} index={index} selected={word.id === selectedWord?.id} onSelect={() => setSelectedId(word.id)} onEdit={() => setEditingWord(word)} onDelete={() => deleteEntry(word)} onLike={() => toggleLiked(word)} />)}</div> : <EmptyLibrary hasWords={words.length > 0} onAdd={() => setEditingWord({})} onClear={() => { setQuery(""); setFilter("all"); }} />}
                   <div className="library-footer"><span>LEXITRACK <i>·</i> YOUR PERSONAL WORD JOURNAL</span><span><span className="status-dot" /> Stored locally</span></div>
@@ -249,6 +294,7 @@ function App() {
 
     {view !== "model" && view !== "review" && <WordDetails word={selectedWord} onEdit={() => selectedWord && setEditingWord(selectedWord)} onLike={() => selectedWord && toggleLiked(selectedWord)} onClose={() => setSelectedId(null)} />}
     <input ref={importRef} className="visually-hidden" type="file" accept=".json,.csv,application/json,text/csv" onChange={importFile} />
+    {restoreOpen && <BackupRestoreDialog preview={restorePreview} error={restoreError} loading={isReadingImport} onChoose={() => importRef.current?.click()} onClose={() => { setRestoreOpen(false); setRestorePreview(null); setRestoreError(""); }} onConfirm={confirmRestore} />}
     {editingWord && <WordDialog word={editingWord.id ? editingWord : null} onClose={() => setEditingWord(null)} onSave={saveEntry} />}
     {toast && <div className="app-toast" role="status"><Check size={15} /> {toast}<button type="button" aria-label="Dismiss notification" onClick={() => setToast("")}><X size={14} /></button></div>}
   </div>;
@@ -292,7 +338,21 @@ function EmptyLibrary({ hasWords, onAdd, onClear }) {
 
 function ExportMenu({ onExport }) {
   const [open, setOpen] = useState(false);
-  return <div className="export-wrap"><button className="subtle-action" type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Download size={14} /> Export</button>{open && <div className="export-popover"><button type="button" onClick={() => { onExport("json"); setOpen(false); }}><FileDown size={14} /> Export JSON</button><button type="button" onClick={() => { onExport("csv"); setOpen(false); }}><FileDown size={14} /> Export CSV</button></div>}</div>;
+  return <div className="export-wrap"><button className="subtle-action" type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Download size={14} /> Export</button>{open && <div className="export-popover"><button type="button" onClick={() => { onExport("json"); setOpen(false); }}><FileDown size={14} /> Export backup</button><button type="button" onClick={() => { onExport("csv"); setOpen(false); }}><FileDown size={14} /> Export CSV</button></div>}</div>;
+}
+
+function BackupRestoreDialog({ preview, error, loading, onChoose, onClose, onConfirm }) {
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="word-dialog backup-dialog" role="dialog" aria-modal="true" aria-labelledby="backup-dialog-title">
+      <div className="dialog-heading"><div><p className="page-eyebrow">LOCAL BACKUP</p><h2 id="backup-dialog-title">Restore vocabulary</h2></div><button className="dialog-close" type="button" aria-label="Close restore dialog" onClick={onClose}><X size={19} /></button></div>
+      <p className="backup-explainer">Choose a LexiTrack JSON backup or CSV. Existing entries are never overwritten or removed; matching words are skipped.</p>
+      <button className="subtle-action backup-choose" type="button" onClick={onChoose} disabled={loading}><Upload size={15} /> {loading ? "Reading file…" : "Choose backup file"}</button>
+      {loading && <p className="backup-state" role="status">Validating local file…</p>}
+      {error && <p className="form-error backup-error" role="alert">{error}</p>}
+      {preview && <div className="backup-preview" aria-live="polite"><p className="backup-file-name">{preview.fileName}</p><dl><div><dt>Will import</dt><dd>{preview.imported}</dd></div><div><dt>Duplicates</dt><dd>{preview.duplicates}</dd></div><div><dt>Skipped invalid</dt><dd>{preview.skipped}</dd></div></dl><p>Review the counts, then confirm the merge. Your existing vocabulary stays unchanged.</p></div>}
+      <div className="dialog-footer backup-footer"><span><span className="status-dot" /> Processed on this device only</span><div><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-action" type="button" onClick={onConfirm} disabled={!preview || loading}>Merge {preview?.imported ?? 0} {preview?.imported === 1 ? "word" : "words"}</button></div></div>
+    </section>
+  </div>;
 }
 
 function WordDialog({ word, onClose, onSave }) {
@@ -317,7 +377,7 @@ function StatsView({ words, masteredCount, categories }) {
 }
 
 function SettingsView({ onImport, onExport, onClear, wordCount, storageError }) {
-  return <section className="settings-view"><p className="page-eyebrow">YOUR PREFERENCES</p><h1>Settings<span className="title-period">.</span></h1><p className="settings-intro">Your vocabulary stays in this browser. Export a backup before clearing local data.</p><div className="settings-section"><h2>Local data</h2><p>{wordCount} {wordCount === 1 ? "word" : "words"} saved on this device.</p>{storageError && <p className="form-error" role="alert">{storageError}</p>}<div className="settings-actions"><button className="subtle-action" type="button" onClick={onImport}><Upload size={15} /> Import backup</button><button className="subtle-action" type="button" onClick={() => onExport("json")}><Download size={15} /> Export JSON</button><button className="settings-danger" type="button" onClick={onClear} disabled={!wordCount}><Trash2 size={15} /> Clear local library</button></div><p className="settings-note"><span className="status-dot" /> No account or backend is connected.</p></div><div className="settings-section"><h2>About LexiTrack</h2><p>Keep the words you find meaningful, and return to them when you’re ready.</p></div></section>;
+  return <section className="settings-view"><p className="page-eyebrow">YOUR PREFERENCES</p><h1>Settings<span className="title-period">.</span></h1><p className="settings-intro">Your vocabulary stays in this browser. Export a backup regularly; clearing browser data can erase it.</p><div className="settings-section"><h2>Local data</h2><p>{wordCount} {wordCount === 1 ? "word" : "words"} saved on this device.</p>{storageError && <p className="form-error" role="alert">{storageError}</p>}<div className="settings-actions"><button className="subtle-action" type="button" onClick={onImport}><Upload size={15} /> Restore backup</button><button className="subtle-action" type="button" onClick={() => onExport("json")}><Download size={15} /> Export backup</button><button className="settings-danger" type="button" onClick={onClear} disabled={!wordCount}><Trash2 size={15} /> Clear local library</button></div><p className="settings-note"><span className="status-dot" /> No account or backend is connected.</p></div><div className="settings-section"><h2>About LexiTrack</h2><p>Keep the words you find meaningful, and return to them when you’re ready.</p></div></section>;
 }
 
 function speakWord(word) {
