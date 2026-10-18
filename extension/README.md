@@ -19,3 +19,7 @@ The build pins a MiniLM repository revision, downloads its config/tokenizer file
 To reproduce the held-out accuracy and local first/warm inference measurements, first run `npm run build:extension`, then run `npm run eval:query-intent`. The labeled evaluation set is `evaluation/query-intent-heldout.json`; it is separate from the model's example prompts.
 
 The extension asks only for Chrome's `storage` permission. Static content-script matches provide access to Google Search pages on `google.com` and `google.co.in`.
+
+## Temporary diagnostics
+
+`extension/diagnostics.js` currently enables local `console.debug` diagnostics for vocabulary-cued searches only. On the Google results tab, open DevTools Console to see the extracted query/target and definition selector/preview. For classifier and final storage outcomes, open `chrome://extensions`, find LexiTrack, open the service worker's **Inspect** console. These logs stay in local DevTools and are never transmitted. Set `ENABLE_EXTENSION_DIAGNOSTICS` to `false` and rebuild after troubleshooting.

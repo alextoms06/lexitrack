@@ -5,8 +5,10 @@ const TARGET_PATTERNS = [
   /^what\s+is\s+meant\s+by\s+(?:(?:the\s+)?(?:word|term)\s+)?(.+)$/iu,
   /^what\s+does\s+(.+?)\s+stand\s+for$/iu,
   /^what\s+does\s+(?:(?:the\s+)?(?:word|term)\s+)?(.+?)\s+mean(?:\s+in\s+[\p{L}\p{M}\s-]+)?$/iu,
+  /^(?:what\s+is\s+)?(?:the\s+)?(?:meaning|definition)\s+of\s+(?:the\s+)?(?:word|term)\s+(.+)$/iu,
   /^what\s+is\s+(?:the\s+)?(?:meaning|definition)\s+of\s+(.+)$/iu,
   /^(?:the\s+)?(?:meaning|definition)\s+of\s+(.+)$/iu,
+  /^define\s+(?:the\s+)?(?:word|term)\s+(.+)$/iu,
   /^define\s+(.+)$/iu,
   /^explain\s+(?:the\s+)?(?:word|term|expression)\s+(.+)$/iu,
   /^(.+?)\s+(?:meaning|definition)(?:\s+in\s+[\p{L}\p{M}\s-]+)?$/iu

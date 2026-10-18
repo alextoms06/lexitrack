@@ -1,8 +1,9 @@
-import { extractDefinitionFromGoogleDOM } from "./definitionExtractor.js";
+import { inspectDefinitionFromGoogleDOM } from "./definitionExtractor.js";
 import { extractTargetWord } from "../src/lib/queryParsing.js";
 import { createSearchDeduper, getGoogleSearch } from "./googleSearch.js";
 import { createConfirmationActions } from "./confirmationActions.js";
 import { LEXITRACK_APP_URL } from "./appConfig.js";
+import { isVocabularyDiagnosticCandidate, logVocabularyDiagnostic } from "./diagnostics.js";
 
 const completedSearches = createSearchDeduper();
 const pendingSearches = new Map();
@@ -131,13 +132,27 @@ async function processSearch(search) {
 
   const operation = (async () => {
     const word = extractTargetWord(search.query);
+    const shouldLog = isVocabularyDiagnosticCandidate(search.query, word);
+    if (shouldLog) {
+      logVocabularyDiagnostic("google-query", { query: search.query, targetWord: word || null });
+    }
     let lastResponse = { status: "ignored" };
 
     for (const retryDelay of definitionRetryDelays) {
       if (retryDelay) await delay(retryDelay);
-      const definition = word
-        ? extractDefinitionFromGoogleDOM(document, word, search.query)
-        : "";
+      const extraction = word
+        ? inspectDefinitionFromGoogleDOM(document, word, search.query)
+        : { definition: "", selector: null, candidatePreview: "", reason: "target-unavailable" };
+      const definition = extraction.definition;
+      if (shouldLog) {
+        logVocabularyDiagnostic("definition-extraction", {
+          query: search.query,
+          targetWord: word || null,
+          matchedSelector: extraction.selector,
+          candidatePreview: extraction.candidatePreview,
+          reason: extraction.reason
+        });
+      }
       try {
         lastResponse = await chrome.runtime.sendMessage({
           type: "LEXITRACK_GOOGLE_QUERY",

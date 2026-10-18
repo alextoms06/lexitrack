@@ -25,7 +25,7 @@ function cleanDefinitionText(value, word) {
     .trim();
   const escapedWord = String(word).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   text = text.replace(new RegExp(`^${escapedWord}\\s*(?::|[-–—])\\s*`, "iu"), "");
-  text = text.replace(new RegExp(`^${escapedWord}\\s+(?:means|refers to|is defined as|is)\\s+`, "iu"), "");
+  text = text.replace(new RegExp(`^${escapedWord}\\s+(?:(?:most|commonly|usually|often|typically)\\s+)*(?:means|refers to|is defined as|denotes|is)\\s+`, "iu"), "");
   text = text.replace(new RegExp(`^(?:the\\s+)?(?:meaning|definition)\\s+of\\s+${escapedWord}\\s*(?::|is)?\\s*`, "iu"), "");
   return text.trim();
 }
@@ -48,19 +48,39 @@ export function normalizeDefinitionText(value, word, query = "") {
 }
 
 export function extractDefinitionFromGoogleDOM(documentObject, word, query = "") {
-  if (!documentObject || !String(word || "").trim()) return "";
+  return inspectDefinitionFromGoogleDOM(documentObject, word, query).definition;
+}
 
+export function inspectDefinitionFromGoogleDOM(documentObject, word, query = "") {
+  if (!documentObject || !String(word || "").trim()) {
+    return { definition: "", selector: null, candidatePreview: "", reason: "missing-document-or-word" };
+  }
+
+  let rejectedSelector = null;
+  let rejectedPreview = "";
   for (const selector of DEFINITION_SELECTORS) {
     for (const node of documentObject.querySelectorAll(selector)) {
-      const definition = normalizeDefinitionText(node.textContent, word, query);
-      if (definition) return definition;
+      const rawText = String(node.textContent || node.innerText || "").replace(/\s+/g, " ").trim();
+      if (rawText && !rejectedPreview) {
+        rejectedSelector = selector;
+        rejectedPreview = rawText.slice(0, 180);
+      }
+      const definition = normalizeDefinitionText(rawText, word, query);
+      if (definition) {
+        return {
+          definition,
+          selector,
+          candidatePreview: rawText.slice(0, 180),
+          reason: "dictionary-definition"
+        };
+      }
     }
   }
 
   const candidates = [];
   for (const selector of AI_OVERVIEW_SELECTORS) {
     for (const node of documentObject.querySelectorAll(selector)) {
-      candidates.push(node);
+      candidates.push({ node, selector });
     }
   }
 
@@ -68,12 +88,14 @@ export function extractDefinitionFromGoogleDOM(documentObject, word, query = "")
     if (!/^AI\s+Overview$/i.test(heading.textContent?.trim() || "")) continue;
     let container = heading.parentElement;
     for (let depth = 0; container && depth < 5; depth += 1, container = container.parentElement) {
-      candidates.push(container);
+      candidates.push({ node: container, selector: "AI Overview heading ancestor" });
     }
   }
 
   const seenTexts = new Set();
-  for (const node of candidates) {
+  let candidatePreview = rejectedPreview;
+  let candidateSelector = rejectedSelector;
+  for (const { node, selector } of candidates) {
     const rawText = String(node.innerText || node.textContent || "").replace(/\s+/g, " ").trim();
     if (!rawText || seenTexts.has(rawText)) continue;
     seenTexts.add(rawText);
@@ -84,9 +106,25 @@ export function extractDefinitionFromGoogleDOM(documentObject, word, query = "")
       !DEFINITION_CUES.test(rawText)
     ) continue;
 
+    if (!candidatePreview) {
+      candidatePreview = rawText.slice(0, 180);
+      candidateSelector = selector;
+    }
     const definition = normalizeDefinitionText(cleanDefinitionText(rawText, word), word, query);
-    if (definition && definition.length <= 600) return definition;
+    if (definition && definition.length <= 600) {
+      return {
+        definition,
+        selector,
+        candidatePreview: rawText.slice(0, 180),
+        reason: "ai-overview-definition"
+      };
+    }
   }
 
-  return "";
+  return {
+    definition: "",
+    selector: candidateSelector,
+    candidatePreview,
+    reason: candidatePreview ? "candidate-rejected" : "no-definition-selector-matched"
+  };
 }

@@ -2,6 +2,7 @@ import { env } from "@huggingface/transformers";
 import { createQueryClassifier } from "../src/meaningModule.js";
 import { createGoogleSearchProcessor } from "./searchProcessor.js";
 import { MODEL_ID, MODEL_REVISION } from "./modelConfig.js";
+import { logVocabularyDiagnostic } from "./diagnostics.js";
 
 env.allowLocalModels = false;
 env.allowRemoteModels = true;
@@ -20,7 +21,8 @@ const classifyWithLocalModel = createQueryClassifier({
 
 const processGoogleSearch = createGoogleSearchProcessor({
   classifier: classifyWithLocalModel,
-  storage: chrome.storage.local
+  storage: chrome.storage.local,
+  diagnostic: logVocabularyDiagnostic
 });
 
 function isSupportedGoogleSearchSender(sender) {

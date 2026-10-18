@@ -2,10 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { createQueryClassifier } from "../src/meaningModule.js";
 import { addVocabularyEntry } from "./wordStore.js";
 import { mergeExtensionBackup, readExtensionWords } from "./backupStorage.js";
-import { extractDefinitionFromGoogleDOM } from "./definitionExtractor.js";
+import { extractDefinitionFromGoogleDOM, inspectDefinitionFromGoogleDOM } from "./definitionExtractor.js";
 import { createGoogleSearchProcessor } from "./searchProcessor.js";
 import { createSearchDeduper, getGoogleSearch } from "./googleSearch.js";
 import { createConfirmationActions } from "./confirmationActions.js";
+import { isVocabularyDiagnosticCandidate } from "./diagnostics.js";
 
 describe("extension vocabulary storage", () => {
   it("deduplicates words regardless of case and whitespace", () => {
@@ -96,6 +97,21 @@ describe("Google definition extraction", () => {
     expect(extractDefinitionFromGoogleDOM(queryNode, "ephemeral", "ephemeral meaning")).toBe("");
   });
 
+  it("reports matched selector and bounded preview when dictionary text is rejected", () => {
+    const documentObject = {
+      querySelectorAll: (selector) => selector === '[data-dobid="dfn"]'
+        ? [{ textContent: "ephemeral meaning" }]
+        : []
+    };
+    expect(inspectDefinitionFromGoogleDOM(documentObject, "ephemeral", "ephemeral meaning"))
+      .toMatchObject({
+        definition: "",
+        selector: '[data-dobid="dfn"]',
+        candidatePreview: "ephemeral meaning",
+        reason: "candidate-rejected"
+      });
+  });
+
   it("captures a word-linked definition from an AI Overview fallback", () => {
     const overview = {
       textContent: "AI Overview Ephemeral means lasting for a very short time.",
@@ -109,6 +125,18 @@ describe("Google definition extraction", () => {
     };
     expect(extractDefinitionFromGoogleDOM(documentObject, "ephemeral", "ephemeral meaning"))
       .toBe("lasting for a very short time.");
+  });
+
+  it("captures the reported LoRA AI Overview sentence", () => {
+    const overview = {
+      textContent: "LoRA most commonly refers to Low-Rank Adaptation in artificial intelligence or Long Range wireless technology in the Internet of Things (IoT).",
+      innerText: "LoRA most commonly refers to Low-Rank Adaptation in artificial intelligence or Long Range wireless technology in the Internet of Things (IoT)."
+    };
+    const documentObject = {
+      querySelectorAll: (selector) => selector === '[data-attrid="AIOverview"]' ? [overview] : []
+    };
+    expect(extractDefinitionFromGoogleDOM(documentObject, "lora", "lora meaning"))
+      .toBe("Low-Rank Adaptation in artificial intelligence or Long Range wireless technology in the Internet of Things (IoT).");
   });
 
   it("finds a definition below an AI Overview heading when data attributes are absent", () => {
@@ -155,6 +183,23 @@ describe("automatic Google search processing", () => {
       query: "ephemeral meaning",
       source: "google-search"
     });
+  });
+
+  it("emits local classification and final-save diagnostics for vocabulary lookups", async () => {
+    let stored = [];
+    const events = [];
+    const storage = {
+      get: async () => ({ "lexitrack.extension.words.v1": stored }),
+      set: async (value) => { stored = value["lexitrack.extension.words.v1"]; }
+    };
+    const processSearch = createGoogleSearchProcessor({
+      storage,
+      diagnostic: (event, details) => events.push({ event, details })
+    });
+    await processSearch("lora meaning", "Low-Rank Adaptation in artificial intelligence.");
+    expect(events.map((entry) => entry.event)).toEqual(["classification", "saved"]);
+    expect(events[0].details).toMatchObject({ query: "lora meaning", targetWord: "lora" });
+    expect(events[1].details.reason).toBe("storage-write-succeeded");
   });
 
   it("ignores unrelated searches without invoking the model", async () => {
@@ -258,6 +303,14 @@ describe("Google SPA navigation deduplication", () => {
     const { extractTargetWord } = await import("../src/lib/queryParsing.js");
     expect(extractTargetWord("meaning of ‘serendipity’")).toBe("serendipity");
     expect(extractTargetWord("definition of pragmatic")).toBe("pragmatic");
+  });
+});
+
+describe("temporary diagnostics privacy scope", () => {
+  it("logs only vocabulary-cued searches or a parsed target", () => {
+    expect(isVocabularyDiagnosticCandidate("ephemeral meaning")).toBe(true);
+    expect(isVocabularyDiagnosticCandidate("how does a transistor work")).toBe(false);
+    expect(isVocabularyDiagnosticCandidate("ordinary query", "ephemeral")).toBe(true);
   });
 });
 

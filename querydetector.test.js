@@ -8,6 +8,7 @@ import {
 
 describe("detectMeaningQuery", () => {
   it.each([
+    ["lora meaning", "lora"],
     ["ephemeral meaning", "ephemeral"],
     ["meaning of serendipity", "serendipity"],
     ["the meaning of ineffable", "ineffable"],
@@ -18,6 +19,10 @@ describe("detectMeaningQuery", () => {
     ["define ubiquitous", "ubiquitous"],
     ["what does abate mean?", "abate"],
     ["what does the word ubiquitous mean", "ubiquitous"],
+    ["meaning of the word ephemeral", "ephemeral"],
+    ["what is the meaning of the word serendipity", "serendipity"],
+    ["definition of the word pragmatic", "pragmatic"],
+    ["define the word ubiquitous", "ubiquitous"],
     ["ephemeral definition", "ephemeral"],
     ["what is the definition of mellifluous", "mellifluous"],
     ["ephemeral meaning in Malayalam", "ephemeral"]
