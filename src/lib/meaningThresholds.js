@@ -1,0 +1,2 @@
+export const MIN_CLASSIFIER_MARGIN = 0.12;
+export const MIN_MEANING_SIMILARITY = 0.28;

@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "LexiTrack Vocabulary Saver",
+  "version": "1.0.0",
+  "description": "Detect vocabulary lookups on Google Search and save words locally.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://google.com/search*",
+        "https://www.google.com/search*",
+        "https://google.co.in/search*",
+        "https://www.google.co.in/search*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "LexiTrack vocabulary",
+    "default_popup": "popup.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

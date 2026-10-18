@@ -1,0 +1,32 @@
+:root {
+  color: #17251d;
+  background: #f8faf7;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  font-optical-sizing: auto;
+}
+
+* { box-sizing: border-box; }
+body { width: 370px; min-height: 420px; max-height: 600px; margin: 0; overflow: hidden; }
+button, input { font: inherit; }
+.popup-shell { display: flex; flex-direction: column; height: min(600px, 100vh); }
+.popup-header { display: flex; align-items: center; justify-content: space-between; padding: 17px 18px 15px; background: #fff; border-bottom: 1px solid #e5ebe5; }
+.brand { display: flex; align-items: center; gap: 9px; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 16px; font-weight: 800; }
+.brand-mark { display: grid; width: 27px; aspect-ratio: 1; place-items: center; border-radius: 8px; background: #d9efaa; color: #203519; font-size: 14px; }
+.word-count { color: #68806e; font-size: 12px; font-weight: 600; }
+.search-box { display: flex; align-items: center; gap: 9px; margin: 14px 16px 8px; padding: 0 11px; height: 38px; border: 1px solid #dfe7df; border-radius: 7px; background: #fff; }
+.search-box svg { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: #7d8d80; stroke-width: 1.8; }
+.search-box input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #1d3022; font-size: 12px; }
+.status { margin: 7px 18px; color: #78877a; font-size: 11px; }
+.word-list { flex: 1; overflow-y: auto; padding: 0 12px 12px; }
+.word-card { display: grid; grid-template-columns: minmax(0, 1fr) 30px; gap: 10px; padding: 12px 7px; border-bottom: 1px solid #e8ede7; }
+.word-main { min-width: 0; }
+.word-title { margin: 0 0 3px; overflow-wrap: anywhere; color: #24382a; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 800; }
+.definition { margin: 0 0 6px; color: #59695d; font-size: 11px; line-height: 1.5; }
+.original-query { margin: 0; overflow-wrap: anywhere; color: #879286; font-size: 10px; }
+.delete-button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #89948a; cursor: pointer; }
+.delete-button:hover { background: #f9e8e5; color: #a43f35; }
+.delete-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.empty-state { margin: 34px 16px; color: #68786b; text-align: center; font-size: 12px; line-height: 1.6; }
+.popup-footer { padding: 10px 16px; border-top: 1px solid #e5ebe5; background: #fff; color: #879286; text-align: center; font-size: 10px; }
