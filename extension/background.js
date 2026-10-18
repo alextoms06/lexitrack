@@ -1,7 +1,6 @@
 import { env } from "@huggingface/transformers";
 import { createQueryClassifier } from "../src/meaningModule.js";
-import { detectMeaningQueryHybrid } from "../querydetector.js";
-import { addVocabularyEntry, STORAGE_KEY } from "./wordStore.js";
+import { createGoogleSearchProcessor } from "./searchProcessor.js";
 import { MODEL_ID, MODEL_REVISION } from "./modelConfig.js";
 
 env.allowLocalModels = false;
@@ -19,64 +18,30 @@ const classifyWithLocalModel = createQueryClassifier({
   pipelineOptions: { dtype: "q8", revision: MODEL_REVISION }
 });
 
-let writeQueue = Promise.resolve();
+const processGoogleSearch = createGoogleSearchProcessor({
+  classifier: classifyWithLocalModel,
+  storage: chrome.storage.local
+});
 
-function serializeStorageWrite(operation) {
-  const result = writeQueue.then(operation, operation);
-  writeQueue = result.catch(() => {});
-  return result;
-}
-
-async function readStoredWords() {
-  const result = await chrome.storage.local.get(STORAGE_KEY);
-  return Array.isArray(result[STORAGE_KEY]) ? result[STORAGE_KEY] : [];
-}
-
-async function processSearch(query, definition) {
-  const detection = await detectMeaningQueryHybrid(query, {
-    classifier: classifyWithLocalModel
-  });
-
-  if (!detection.isMeaningQuery) {
-    return detection.reason === "classifier-unavailable"
-      ? { status: "error", message: "The local meaning model could not be loaded. Nothing was saved." }
-      : { status: "ignored" };
+function isSupportedGoogleSearchSender(sender) {
+  try {
+    const url = new URL(sender.tab?.url || "");
+    return ["google.com", "www.google.com", "google.co.in", "www.google.co.in"].includes(url.hostname) &&
+      url.pathname === "/search";
+  } catch {
+    return false;
   }
-
-  if (!detection.word || detection.needsConfirmation) {
-    return { status: "confirmation-required" };
-  }
-
-  return serializeStorageWrite(async () => {
-    const entries = await readStoredWords();
-    const result = addVocabularyEntry(entries, {
-      word: detection.word,
-      query,
-      definition,
-      dateAdded: new Date().toISOString(),
-      source: "google-search"
-    });
-    await chrome.storage.local.set({ [STORAGE_KEY]: result.entries });
-    return {
-      status: "saved",
-      entry: result.entry,
-      duplicate: result.duplicate,
-      updated: result.updated,
-      count: result.entries.length
-    };
-  });
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "LEXITRACK_GOOGLE_QUERY") return false;
+  if (!isSupportedGoogleSearchSender(_sender)) {
+    sendResponse({ status: "error", code: "unsupported-sender" });
+    return false;
+  }
 
-  processSearch(String(message.query || ""), String(message.definition || ""))
+  processGoogleSearch(String(message.query || ""), String(message.definition || ""))
     .then(sendResponse)
-    .catch((error) => {
-      sendResponse({
-        status: "error",
-        message: error instanceof Error ? error.message : String(error)
-      });
-    });
+    .catch(() => sendResponse({ status: "error", code: "processing-failed" }));
   return true;
 });

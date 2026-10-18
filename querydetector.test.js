@@ -17,6 +17,7 @@ describe("detectMeaningQuery", () => {
     ["what does ephemeral stand for", "ephemeral"],
     ["define ubiquitous", "ubiquitous"],
     ["what does abate mean?", "abate"],
+    ["what does the word ubiquitous mean", "ubiquitous"],
     ["ephemeral definition", "ephemeral"],
     ["what is the definition of mellifluous", "mellifluous"],
     ["ephemeral meaning in Malayalam", "ephemeral"]
@@ -66,6 +67,8 @@ describe("detectMeaningQuery", () => {
 
   it("does not return an entire ambiguous sentence as a word", () => {
     expect(extractTargetWord("could you tell me the meaning of that phrase please")).toBe(null);
+    expect(extractTargetWord("meaning of meaning")).toBe(null);
+    expect(extractTargetWord("define define")).toBe(null);
   });
 
   it("uses the model only for ambiguous queries and requires a score margin", async () => {

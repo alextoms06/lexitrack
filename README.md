@@ -27,4 +27,6 @@ npm run build:extension
 
 Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select `dist-extension/`. The extension checks Google Search pages on `google.com` and `google.co.in`, and stores only detected vocabulary lookups in `chrome.storage.local`. Its popup can search, delete, export, and restore its local vocabulary. Web-app and extension storage are separate; use a backup to move data between them.
 
+Before building, set `LEXITRACK_APP_URL` in `extension/appConfig.js` to the deployed LexiTrack HTTPS URL. No deployed URL is configured in this repository, so the Go to app button explains that configuration is required until you provide it. Then rebuild with `npm run build:extension`.
+
 The extension build downloads the pinned MiniLM model revision and packages the q8 ONNX model plus the installed Transformers.js WASM runtime into `dist-extension/`. Internet is needed when building; the built extension uses those local files and does not call a model API or Vite server. The unpacked output is about 50 MB and is ignored by Git.
