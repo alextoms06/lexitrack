@@ -2,6 +2,7 @@ const DEFINITION_SELECTORS = [
   '[data-dobid="dfn"]',
   '.lr_dct_ent [data-dobid="dfn"]'
 ];
+const OBSERVED_DEFINITION_SELECTOR = "mark.b6AQX";
 const AI_OVERVIEW_SELECTORS = [
   '[data-attrid="AIOverview"]',
   '[data-attrid*="AIOverview"]',
@@ -10,7 +11,7 @@ const AI_OVERVIEW_SELECTORS = [
   '[data-attrid*="definition"]',
   '[data-attrid*="dictionary"]'
 ];
-const DEFINITION_CUES = /\b(?:means|mean|refers to|is defined as|defined as|denotes|describes|is a|is an)\b/i;
+const DEFINITION_CUES = /\b(?:means|mean|refers to|is defined as|defined as|denotes|describes|is a|is an|is the|most commonly refers to|the occurrence of|occurs as)\b/i;
 
 function containsTarget(text, word) {
   const escaped = String(word).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -52,7 +53,7 @@ export function extractDefinitionFromGoogleDOM(documentObject, word, query = "")
 }
 
 export function inspectDefinitionFromGoogleDOM(documentObject, word, query = "") {
-  if (!documentObject || !String(word || "").trim()) {
+  if (!documentObject || typeof documentObject.querySelectorAll !== "function" || !String(word || "").trim()) {
     return { definition: "", selector: null, candidatePreview: "", reason: "missing-document-or-word" };
   }
 
@@ -75,6 +76,41 @@ export function inspectDefinitionFromGoogleDOM(documentObject, word, query = "")
         };
       }
     }
+  }
+
+  const observedDefinitions = new Map();
+  for (const mark of documentObject.querySelectorAll(OBSERVED_DEFINITION_SELECTOR)) {
+    const parent = mark.parentElement;
+    if (!parent?.matches?.("div.n6owBd.awi2gc")) continue;
+    const parentText = String(parent?.innerText || parent?.textContent || "").replace(/\s+/g, " ").trim();
+    const markText = String(mark.innerText || mark.textContent || "")
+      .replace(/\s+/g, " ")
+      .replace(/^[\s:;,.–—-]+|[\s.;,]+$/g, "")
+      .trim();
+
+    if (!parent || !containsTarget(parentText, word) || !DEFINITION_CUES.test(parentText)) continue;
+    const definition = normalizeDefinitionText(markText, word, query);
+    if (!definition) continue;
+
+    const key = definition.toLocaleLowerCase();
+    observedDefinitions.set(key, {
+      definition,
+      selector: OBSERVED_DEFINITION_SELECTOR,
+      candidatePreview: parentText.slice(0, 180),
+      reason: "target-associated-highlighted-definition"
+    });
+  }
+
+  if (observedDefinitions.size === 1) {
+    return observedDefinitions.values().next().value;
+  }
+  if (observedDefinitions.size > 1) {
+    return {
+      definition: "",
+      selector: OBSERVED_DEFINITION_SELECTOR,
+      candidatePreview: [...observedDefinitions.values()][0].candidatePreview,
+      reason: "ambiguous-target-definitions"
+    };
   }
 
   const candidates = [];

@@ -91,6 +91,82 @@ describe("Google definition extraction", () => {
       .toBe("Lasting for a very short time.");
   });
 
+  it("extracts only the highlighted definition from the observed nocturnal dictionary card", () => {
+    const mark = {
+      innerText: "active, happening, or existing at night rather than during the day",
+      textContent: "active, happening, or existing at night rather than during the day"
+    };
+    const parent = {
+      innerText: "Nocturnal means active, happening, or existing at night rather than during the day. Cambridge Dictionary",
+      textContent: "Nocturnal means active, happening, or existing at night rather than during the day. Cambridge Dictionary",
+      matches: (selector) => selector === "div.n6owBd.awi2gc"
+    };
+    mark.parentElement = parent;
+    const definitionContainer = { querySelectorAll: () => [mark] };
+    parent.parentElement = definitionContainer;
+    const card = {
+      innerText: `${parent.innerText} Nocturnal behavior includes several unrelated explanations and examples.`,
+      textContent: `${parent.textContent} Nocturnal behavior includes several unrelated explanations and examples.`
+    };
+    definitionContainer.parentElement = card;
+    const documentObject = {
+      querySelectorAll: (selector) => selector === "mark.b6AQX" ? [mark] : []
+    };
+
+    expect(extractDefinitionFromGoogleDOM(documentObject, "nocturnal", "nocturnal meaning"))
+      .toBe("active, happening, or existing at night rather than during the day");
+  });
+
+  it("rejects an unrelated highlighted mark and a parent without the target word", () => {
+    const makeMark = (parentText) => {
+      const parent = {
+        innerText: parentText,
+        textContent: parentText,
+        matches: (selector) => selector === "div.n6owBd.awi2gc"
+      };
+      return {
+        innerText: "active during the night",
+        textContent: "active during the night",
+        parentElement: parent
+      };
+    };
+    for (const parentText of [
+      "Diurnal means active during daylight.",
+      "A definition result: active during the night."
+    ]) {
+      const mark = makeMark(parentText);
+      const documentObject = { querySelectorAll: (selector) => selector === "mark.b6AQX" ? [mark] : [] };
+      expect(extractDefinitionFromGoogleDOM(documentObject, "nocturnal", "nocturnal meaning")).toBe("");
+    }
+  });
+
+  it("rejects multiple distinct highlighted definitions associated with the target", () => {
+    const makeMark = (definition) => {
+      const parentText = `Finesse means ${definition}.`;
+      return {
+        innerText: definition,
+        textContent: definition,
+        parentElement: {
+          innerText: parentText,
+          textContent: parentText,
+          matches: (selector) => selector === "div.n6owBd.awi2gc"
+        }
+      };
+    };
+    const documentObject = {
+      querySelectorAll: (selector) => selector === "mark.b6AQX"
+        ? [makeMark("skill and tact in handling a situation"), makeMark("a card-game tactic")]
+        : []
+    };
+    expect(extractDefinitionFromGoogleDOM(documentObject, "finesse", "finesse meaning")).toBe("");
+  });
+
+  it("returns no definition for empty or malformed DOM objects", () => {
+    expect(extractDefinitionFromGoogleDOM(null, "nocturnal")).toBe("");
+    expect(extractDefinitionFromGoogleDOM({}, "nocturnal")).toBe("");
+    expect(extractDefinitionFromGoogleDOM({ querySelectorAll: () => [] }, "nocturnal")).toBe("");
+  });
+
   it("returns empty when dictionary elements are unavailable or contain only the query", () => {
     expect(extractDefinitionFromGoogleDOM({ querySelectorAll: () => [] }, "ephemeral")).toBe("");
     const queryNode = { querySelectorAll: () => [{ textContent: "ephemeral meaning" }] };
@@ -139,6 +215,16 @@ describe("Google definition extraction", () => {
       .toBe("Low-Rank Adaptation in artificial intelligence or Long Range wireless technology in the Internet of Things (IoT).");
   });
 
+  it("captures the exact 'Serendipity is the occurrence...' AI Overview wording", () => {
+    const sentence = "Serendipity is the occurrence of valuable, pleasant, or interesting events by chance in a happy or beneficial way.";
+    const overview = { textContent: `AI Overview ${sentence}`, innerText: `AI Overview ${sentence}` };
+    const documentObject = {
+      querySelectorAll: (selector) => selector === '[data-attrid="AIOverview"]' ? [overview] : []
+    };
+    expect(extractDefinitionFromGoogleDOM(documentObject, "serendipity", "serendipity meaning"))
+      .toBe("the occurrence of valuable, pleasant, or interesting events by chance in a happy or beneficial way.");
+  });
+
   it("finds a definition below an AI Overview heading when data attributes are absent", () => {
     const overview = {
       innerText: "AI Overview Ubiquitous means present or found everywhere.",
@@ -153,6 +239,16 @@ describe("Google definition extraction", () => {
     };
     expect(extractDefinitionFromGoogleDOM(documentObject, "ubiquitous", "what does ubiquitous mean"))
       .toBe("present or found everywhere.");
+  });
+
+  it("captures a structured AI Overview sentence that defines a word as an ability", () => {
+    const sentence = "Finesse is the ability to handle difficult situations with skill, tact, and subtle control.";
+    const overview = { textContent: `AI Overview ${sentence}`, innerText: `AI Overview ${sentence}` };
+    const documentObject = {
+      querySelectorAll: (selector) => selector === '[data-attrid="AIOverview"]' ? [overview] : []
+    };
+    expect(extractDefinitionFromGoogleDOM(documentObject, "finesse", "what does finesse mean"))
+      .toBe("the ability to handle difficult situations with skill, tact, and subtle control.");
   });
 
   it("rejects unrelated AI Overview text and generic result snippets", () => {
